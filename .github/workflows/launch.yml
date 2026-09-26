@@ -1,0 +1,31 @@
+name: Launch Private RDP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Trigger RDP-SEC-001-WIN-11
+        env:
+          PAT: ${{ secrets.PAT }}
+        run: |
+          set -e
+
+          echo "[+] Starting private RDP workflow..."
+
+          curl -fL \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $PAT" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "https://api.github.com/repos/drisrida123455-wq/RDP-SEC-001-WIN-11/actions/workflows/rdp-secure.yml/dispatches" \
+            -d '{"ref":"main"}'
+
+          echo "[✓] Private RDP workflow triggered successfully."
