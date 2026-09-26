@@ -1,34 +1,204 @@
-name: Launch Private RDP
+name: RDP Public Launcher
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  launch:
-    runs-on: ubuntu-latest
+  run-private-rdp-on-public-runner:
+    runs-on: windows-latest
+    timeout-minutes: 360
 
     steps:
-      - name: Trigger private RDP workflow
+
+      - name: Download private RDP source
+        uses: actions/checkout@v4
+        with:
+          repository: drisrida123455-wq/RDP-SEC-001-WIN-11
+          token: ${{ secrets.PAT }}
+          path: private-rdp
+          fetch-depth: 1
+
+      - name: Download private SuperDMZ installer
+        uses: actions/checkout@v4
+        with:
+          repository: drisrida123455-wq/RDP-SEC-001-INSTALLER-WIN-11
+          token: ${{ secrets.PAT }}
+          path: private-installer
+          fetch-depth: 1
+
+      - name: Import variables from private repository
+        shell: pwsh
         env:
-          PAT: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ secrets.PAT }}
         run: |
-          set -e
+          $ErrorActionPreference = "Stop"
 
-          OWNER="drisrida123455-wq"
-          REPO="RDP-SEC-001-WIN-11"
-          WORKFLOW="rdp-secure.yml"
+          $owner = "drisrida123455-wq"
+          $repo  = "RDP-SEC-001-WIN-11"
 
-          echo "[+] Triggering private RDP workflow..."
+          Write-Host "[+] Loading private repository variables..."
 
-          curl -fL \
-            -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $PAT" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$OWNER/$REPO/actions/workflows/$WORKFLOW/dispatches" \
-            -d '{"ref":"main"}'
+          $user = gh api `
+            "repos/$owner/$repo/actions/variables/USER_RDP" `
+            --jq ".value"
 
-          echo "[✓] Private workflow triggered."
+          $pass = gh api `
+            "repos/$owner/$repo/actions/variables/PASS_RDP" `
+            --jq ".value"
+
+          if ([string]::IsNullOrWhiteSpace($user)) {
+              throw "USER_RDP was not found."
+          }
+
+          if ([string]::IsNullOrWhiteSpace($pass)) {
+              throw "PASS_RDP was not found."
+          }
+
+          Write-Host "::add-mask::$user"
+          Write-Host "::add-mask::$pass"
+
+          "USER_RDP=$user" >> $env:GITHUB_ENV
+          "PASS_RDP=$pass" >> $env:GITHUB_ENV
+
+          Write-Host "[✓] Private variables loaded."
+
+      - name: Install SuperDMZ
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $setup = Join-Path `
+              $env:GITHUB_WORKSPACE `
+              "private-installer\SuperDMZ.exe"
+
+          $installDir = Join-Path `
+              $env:RUNNER_TEMP `
+              "SuperDMZ"
+
+          if (-not (Test-Path $setup)) {
+              throw "SuperDMZ.exe not found."
+          }
+
+          New-Item `
+              -ItemType Directory `
+              -Path $installDir `
+              -Force |
+              Out-Null
+
+          Write-Host "[+] Installing SuperDMZ..."
+
+          $p = Start-Process `
+              -FilePath $setup `
+              -ArgumentList @(
+                  "/VERYSILENT"
+                  "/SUPPRESSMSGBOXES"
+                  "/NORESTART"
+                  "/DIR=`"$installDir`""
+              ) `
+              -WorkingDirectory $installDir `
+              -Wait `
+              -PassThru
+
+          if ($p.ExitCode -ne 0) {
+              throw "SuperDMZ installation failed. ExitCode=$($p.ExitCode)"
+          }
+
+          Start-Sleep -Seconds 5
+
+          $client = Get-ChildItem `
+              -Path $installDir `
+              -Recurse `
+              -File `
+              -Filter "superdmz-client.exe" `
+              -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+
+          if (-not $client) {
+              $client = Get-ChildItem `
+                  -Path $installDir `
+                  -Recurse `
+                  -File `
+                  -Filter "superdmz*.exe" `
+                  -ErrorAction SilentlyContinue |
+                  Where-Object {
+                      $_.Name -notmatch "setup|unins"
+                  } |
+                  Select-Object -First 1
+          }
+
+          if (-not $client) {
+              throw "SuperDMZ client executable was not found."
+          }
+
+          "SUPERDMZ_EXE=$($client.FullName)" >> $env:GITHUB_ENV
+
+          Write-Host "[✓] SuperDMZ installed."
+
+      - name: Run private RDP code on PUBLIC runner
+        shell: pwsh
+        env:
+          SUPERDMZ_TOKEN: ${{ secrets.SUPERDMZ_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $script = Join-Path `
+              $env:GITHUB_WORKSPACE `
+              "private-rdp\rdp-secure.ps1"
+
+          if (-not (Test-Path $script)) {
+              throw "Private RDP script was not found."
+          }
+
+          Write-Host "[+] Starting private RDP payload..."
+          Write-Host "[+] Execution is happening on PUBLIC runner."
+
+          Write-Host "::add-mask::$env:SUPERDMZ_TOKEN"
+          Write-Host "::add-mask::$env:USER_RDP"
+          Write-Host "::add-mask::$env:PASS_RDP"
+
+          $log = Join-Path `
+              $env:RUNNER_TEMP `
+              "rdp-private-runtime.log"
+
+          Remove-Item `
+              $log `
+              -Force `
+              -ErrorAction SilentlyContinue
+
+          & pwsh `
+              -NoLogo `
+              -NoProfile `
+              -NonInteractive `
+              -ExecutionPolicy Bypass `
+              -File $script `
+              > $log `
+              2>&1
+
+          $code = $LASTEXITCODE
+
+          if ($code -ne 0) {
+              Write-Host "[-] Private RDP payload exited with code $code." -ForegroundColor Red
+              throw "RDP runtime failed."
+          }
+
+          Write-Host "[✓] Private RDP payload completed." -ForegroundColor Green
+
+      - name: Cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          Get-Process `
+              -Name "superdmz-client" `
+              -ErrorAction SilentlyContinue |
+              Stop-Process `
+              -Force `
+              -ErrorAction SilentlyContinue
+
+          Get-Process `
+              -Name "SuperDMZ" `
+              -ErrorAction SilentlyContinue |
+              Stop-Process `
+              -Force `
+              -ErrorAction SilentlyContinue
+
+          Write-Host "[✓] Cleanup complete."
