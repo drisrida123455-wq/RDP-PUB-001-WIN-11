@@ -12,9 +12,9 @@ jobs:
 
     steps:
 
-      - name: Start RDP-SEC-001-WIN-11
+      - name: Trigger RDP-SEC-001-WIN-11
         env:
-          GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+          PAT: ${{ secrets.PAT }}
         run: |
           set -e
 
@@ -23,9 +23,9 @@ jobs:
           curl -fL \
             -X POST \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GITHUB_PAT" \
+            -H "Authorization: Bearer $PAT" \
             -H "X-GitHub-Api-Version: 2026-03-10" \
             "https://api.github.com/repos/drisrida123455-wq/RDP-SEC-001-WIN-11/actions/workflows/rdp-secure.yml/dispatches" \
             -d '{"ref":"main"}'
 
-          echo "[✓] Private RDP workflow triggered."
+          echo "[✓] Private RDP workflow triggered successfully."
