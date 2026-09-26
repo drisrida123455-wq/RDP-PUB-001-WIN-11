@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Trigger RDP-SEC-001-WIN-11
+      - name: Trigger private RDP workflow
         env:
           PAT: ${{ secrets.PAT }}
         run: |
@@ -31,4 +31,4 @@ jobs:
             "https://api.github.com/repos/$OWNER/$REPO/actions/workflows/$WORKFLOW/dispatches" \
             -d '{"ref":"main"}'
 
-          echo "[✓] Private RDP workflow triggered successfully."
+          echo "[✓] Private workflow triggered."
